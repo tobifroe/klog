@@ -6,13 +6,15 @@ use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, LogParams};
 use kube::ResourceExt;
 
+use crate::util;
+
 pub async fn stream_single_pod_logs(
-    client: kube::Client,
+    client: &kube::Client,
     pod_name: &str,
     ns_name: &str,
     follow: &bool,
 ) -> Result<(), anyhow::Error> {
-    let pods: Api<Pod> = Api::namespaced(client, ns_name);
+    let pods: Api<Pod> = Api::namespaced(client.clone(), ns_name);
     let pod = pods.get(pod_name).await?;
 
     let spec = &pod.spec.clone().unwrap();
@@ -31,8 +33,10 @@ pub async fn stream_single_pod_logs(
         .await?
         .lines();
 
+    let color = util::get_rnd_color();
+
     while let Some(line) = logs.try_next().await? {
-        let pretty_pod_name = &pod.name_any().blue();
+        let pretty_pod_name = &pod.name_any().truecolor(color.r, color.g, color.b);
         println!("{} {}", pretty_pod_name, line);
     }
 

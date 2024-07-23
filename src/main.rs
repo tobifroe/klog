@@ -1,7 +1,9 @@
 pub mod k8s;
+pub mod util;
 
 use clap::{ArgAction, Parser};
 use kube::Client;
+use tokio::task;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -10,12 +12,12 @@ struct Args {
     #[arg(short, long)]
     namespace: String,
 
-    /// Pod to log
-    #[arg(short, long)]
-    pod: String,
+    /// Pods to log
+    #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
+    pods: Vec<String>,
 
     /// Follow log?
-    #[arg(short, long, action=ArgAction::SetTrue)]
+    #[arg(short, long, action = ArgAction::SetTrue)]
     follow: bool,
 }
 
@@ -24,8 +26,27 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     let client = Client::try_default().await?;
+    let pod_list = args.pods;
+    let namespace = args.namespace;
+    let follow = args.follow;
 
-    k8s::stream_single_pod_logs(client, &args.pod, &args.namespace, &args.follow).await?;
+    let mut handles = Vec::new();
 
-    return Ok(());
+    for pod in pod_list {
+        let client = client.clone();
+        let namespace = namespace.clone();
+
+        let handle = task::spawn(async move {
+            k8s::stream_single_pod_logs(&client, &pod, &namespace, &follow).await?;
+            Ok::<(), anyhow::Error>(())
+        });
+
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.await??;
+    }
+
+    Ok(())
 }

@@ -867,6 +867,7 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "log",
+ "rand",
  "simplelog",
  "tokio",
 ]
