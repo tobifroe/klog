@@ -1,5 +1,3 @@
-use std::u8;
-
 use rand::Rng;
 
 pub struct Color {
@@ -13,5 +11,5 @@ pub fn get_rnd_color() -> Color {
     let r = rng.gen_range(0..255);
     let g = rng.gen_range(0..255);
     let b = rng.gen_range(0..255);
-    return Color { r, g, b };
+    Color { r, g, b }
 }
