@@ -52,7 +52,7 @@ pub async fn stream_single_pod_logs(
     let pod = pods.get(pod_name).await?;
 
     let spec = &pod.spec.clone().unwrap();
-    let container = &spec.containers.get(0);
+    let container = &spec.containers.first();
     let name = &container.unwrap().name;
     let mut logs = pods
         .log_stream(
@@ -74,5 +74,5 @@ pub async fn stream_single_pod_logs(
         println!("{} {}", pretty_pod_name, line);
     }
 
-    return Ok(());
+    Ok(())
 }
