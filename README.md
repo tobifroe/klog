@@ -24,9 +24,10 @@ klog -n my-namespace -p pod1 pod2 pod3 -f
 ### Options
 
 ```
--n, --namespace <NAMESPACE>    Namespace to use
--p, --pods <PODS>...           Pods to log
--f, --follow                   Follow log?
+-n, --namespace <NAMESPACE>       Namespace to use
+-p, --pods <PODS>...              Pods to log
+-d, --deployment <DEPLOYMENTS>... Deployments to log
+-f, --follow                      Follow log?
 ```
 
 ## Example
