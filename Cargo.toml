@@ -2,6 +2,9 @@
 name = "klog"
 version = "0.1.0"
 edition = "2021"
+authors = ["Tobias Frölich <hi@froelich.dev>"]
+repository = "https://github.com/tobifroe/klog"
+license = "MIT"
 
 [dependencies]
 kube = { version = "0.93.1", features = ["runtime", "derive"] }
@@ -14,3 +17,4 @@ log = "0.4.22"
 colored = "2.1.0"
 clap = { version = "4.5.10", features = ["derive"] }
 rand = "0.8.5"
+itertools = "0.13.0"

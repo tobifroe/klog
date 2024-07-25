@@ -12,6 +12,10 @@ struct Args {
     #[arg(short, long)]
     namespace: String,
 
+    /// Deployment to log
+    #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
+    deployments: Vec<String>,
+
     /// Pods to log
     #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
     pods: Vec<String>,
@@ -26,7 +30,17 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     let client = Client::try_default().await?;
-    let pod_list = args.pods;
+
+    let mut pod_list = args.pods;
+
+    if !args.deployments.is_empty() {
+        for deploy in args.deployments.iter() {
+            pod_list.append(
+                &mut k8s::get_pod_list_for_deployment(&client, deploy, &args.namespace).await?,
+            );
+        }
+    }
+
     let namespace = args.namespace;
     let follow = args.follow;
 
