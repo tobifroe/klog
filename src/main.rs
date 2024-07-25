@@ -33,10 +33,10 @@ async fn main() -> anyhow::Result<()> {
 
     let mut pod_list = args.pods;
 
-    if args.deployments.len() > 0 {
+    if !args.deployments.is_empty() {
         for deploy in args.deployments.iter() {
             pod_list.append(
-                &mut k8s::get_pod_list_for_deployment(&client, &deploy, &args.namespace).await?,
+                &mut k8s::get_pod_list_for_deployment(&client, deploy, &args.namespace).await?,
             );
         }
     }

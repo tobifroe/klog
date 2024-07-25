@@ -1,5 +1,3 @@
-use std::fmt;
-
 use anyhow::Ok;
 use colored::Colorize;
 use futures_util::AsyncBufReadExt;
@@ -34,12 +32,12 @@ pub async fn get_pod_list_for_deployment(
     let list_params = ListParams::default().labels(&labels);
     let pod_list = pod_api.list(&list_params).await?;
 
-    let mut pod_name_list: Vec<String> = vec!["".to_string(); 0];
+    let mut pod_name_list: std::vec::Vec<std::string::String> = vec![];
     for pod in pod_list.iter() {
         pod_name_list.push(pod.name().unwrap().to_string());
     }
 
-    Ok((pod_name_list))
+    Ok(pod_name_list)
 }
 
 pub async fn stream_single_pod_logs(
