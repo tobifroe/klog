@@ -4,6 +4,8 @@ version = "0.0.1"
 edition = "2021"
 authors = ["Tobias Frölich <hi@froelich.dev>"]
 repository = "https://github.com/tobifroe/klog"
+description = "klog is a tool that allows you to tail logs of multiple Kubernetes pods simultaneously."
+readme = "README.md"
 license = "MIT"
 
 [dependencies]
