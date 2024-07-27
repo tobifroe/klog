@@ -1,6 +1,6 @@
 [package]
 name = "klog"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 authors = ["Tobias Frölich <hi@froelich.dev>"]
 repository = "https://github.com/tobifroe/klog"
