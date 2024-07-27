@@ -1,53 +1,60 @@
-# .github/workflows/release.yml
+name: Release
+
+permissions:
+  contents: write
 
 on:
   push:
     tags:
-      - "*"
+      - "*" 
 
 jobs:
   create-release:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - name: Create a Release
-      uses: elgohr/Github-Release-Action@v5
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        title: ${{ github.ref_name }}
-  build:
-    name: release ${{ matrix.target }}
-    runs-on: ubuntu-latest
+      - uses: actions/checkout@v4
+      - uses: taiki-e/create-gh-release-action@v1
+        with:
+          # (required) GitHub token for creating GitHub Releases.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  upload-assets:
+    needs: create-release
     strategy:
-      fail-fast: false
       matrix:
         include:
-          - target: x86_64-pc-windows-gnu
-            archive: zip
-          - target: x86_64-unknown-linux-musl
-            archive: tar.gz tar.xz tar.zst
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
           - target: x86_64-apple-darwin
-            archive: zip
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@master
-      - name: Compile and release
-        uses: rust-build/rust-build.action@v1.4.5
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
+      - uses: taiki-e/upload-rust-binary-action@v1
         with:
-          RUSTTARGET: ${{ matrix.target }}
-          ARCHIVE_TYPES: ${{ matrix.archive }}
-          STATIC_LINKING: false
-  publish:
-    name: publish crate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-            toolchain: stable
-            override: true
-      - uses: katyo/publish-crates@v2
-        with:
+          # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
+          # Note that glob pattern is not supported yet.
+          bin: klog
+          target: ${{ matrix.target }}
+          # (optional) On which platform to distribute the `.tar.gz` file.
+          tar: unix
+          # (optional) On which platform to distribute the `.zip` file.
+          # [default value: windows]
+          # [possible values: all, unix, windows, none]
+          zip: windows
+          # (required) GitHub token for uploading assets to GitHub Releases.
+          token: ${{ secrets.GITHUB_TOKEN }}
+  publish-crate:
+      name: publish crate
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v3
+        - uses: actions-rs/toolchain@v1
+          with:
+              toolchain: stable
+              override: true
+        - uses: katyo/publish-crates@v2
+          with:
             registry-token: ${{ secrets.CRATES_IO_TOKEN }}
