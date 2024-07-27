@@ -16,6 +16,10 @@ struct Args {
     #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
     deployments: Vec<String>,
 
+    /// Statefulsets to log
+    #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
+    statefulsets: Vec<String>,
+
     /// Pods to log
     #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
     pods: Vec<String>,
@@ -37,6 +41,15 @@ async fn main() -> anyhow::Result<()> {
         for deploy in args.deployments.iter() {
             pod_list.append(
                 &mut k8s::get_pod_list_for_deployment(&client, deploy, &args.namespace).await?,
+            );
+        }
+    }
+
+    if !args.statefulsets.is_empty() {
+        for statefulset in args.statefulsets.iter() {
+            pod_list.append(
+                &mut k8s::get_pod_list_for_statefulset(&client, statefulset, &args.namespace)
+                    .await?,
             );
         }
     }
