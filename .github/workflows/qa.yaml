@@ -26,6 +26,7 @@ jobs:
         uses: medyagh/setup-minikube@latest
         with:
           start: false
+      - uses: actions/checkout@v4
       - name: setup test cluster
         run: make prepare_tests
       - name: run tests
