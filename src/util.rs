@@ -13,3 +13,15 @@ pub fn get_rnd_color() -> Color {
     let b = rng.gen_range(0..255);
     Color { r, g, b }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_randomness() {
+        let color1 = get_rnd_color();
+        let color2 = get_rnd_color();
+        assert!(color1.r != color2.r || color1.g != color2.g || color1.b != color2.b);
+    }
+}
