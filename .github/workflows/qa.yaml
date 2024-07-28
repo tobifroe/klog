@@ -18,3 +18,15 @@ jobs:
           github_token: ${{ secrets.GH_TOKEN }}
           level: info
           clippy_flags: -- -Dwarnings
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: setup minikube
+        id: minikube
+        uses: medyagh/setup-minikube@latest
+        with:
+          start: false
+      - name: setup test cluster
+        run: make prepare_tests
+      - name: run tests
+        run: make test
