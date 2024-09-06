@@ -14,8 +14,6 @@ k8s-openapi = { version = "0.22.0", features = ["latest"] }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 futures-util = "0.3"
-simplelog = "0.12.2"
-log = "0.4.22"
 colored = "2.1.0"
 clap = { version = "4.5.10", features = ["derive"] }
 rand = "0.8.5"
