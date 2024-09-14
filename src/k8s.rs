@@ -4,6 +4,7 @@ use anyhow::Ok;
 use colored::Colorize;
 use futures_util::AsyncBufReadExt;
 use futures_util::TryStreamExt;
+use k8s_openapi::api::apps::v1::DaemonSet;
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::apps::v1::StatefulSet;
 use k8s_openapi::api::core::v1::Pod;
@@ -60,6 +61,21 @@ pub async fn get_pod_list_for_statefulset(
     let statefulset = statefulset_api.get(statefulset_name).await?;
 
     let spec = statefulset.spec.unwrap();
+    let match_labels = spec.selector.match_labels.unwrap();
+
+    let pod_name_list = get_pod_list(client, ns_name, match_labels).await?;
+    Ok(pod_name_list)
+}
+
+pub async fn get_pod_list_for_daemonset(
+    client: &kube::Client,
+    daemonset_name: &str,
+    ns_name: &str,
+) -> Result<Vec<String>, anyhow::Error> {
+    let ds_api: Api<DaemonSet> = Api::namespaced(client.clone(), ns_name);
+    let ds = ds_api.get(daemonset_name).await?;
+
+    let spec = ds.spec.unwrap();
     let match_labels = spec.selector.match_labels.unwrap();
 
     let pod_name_list = get_pod_list(client, ns_name, match_labels).await?;
