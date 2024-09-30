@@ -20,6 +20,10 @@ struct Args {
     #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
     statefulsets: Vec<String>,
 
+    /// Daemonsets to log
+    #[arg(long, value_delimiter = ' ', num_args = 1..)]
+    daemonsets: Vec<String>,
+
     /// Pods to log
     #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
     pods: Vec<String>,
@@ -51,6 +55,13 @@ async fn main() -> anyhow::Result<()> {
                 &mut k8s::get_pod_list_for_statefulset(&client, statefulset, &args.namespace)
                     .await?,
             );
+        }
+    }
+
+    if !args.daemonsets.is_empty() {
+        for ds in args.daemonsets.iter() {
+            pod_list
+                .append(&mut k8s::get_pod_list_for_daemonset(&client, ds, &args.namespace).await?);
         }
     }
 
