@@ -1,7 +1,9 @@
 pub mod k8s;
+pub mod traits;
 pub mod util;
 
 use clap::{ArgAction, Parser};
+use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, StatefulSet};
 use kube::Client;
 use tokio::task;
 
@@ -44,7 +46,8 @@ async fn main() -> anyhow::Result<()> {
     if !args.deployments.is_empty() {
         for deploy in args.deployments.iter() {
             pod_list.append(
-                &mut k8s::get_pod_list_for_deployment(&client, deploy, &args.namespace).await?,
+                &mut k8s::get_pod_list_for_resource::<Deployment>(&client, deploy, &args.namespace)
+                    .await?,
             );
         }
     }
@@ -52,16 +55,22 @@ async fn main() -> anyhow::Result<()> {
     if !args.statefulsets.is_empty() {
         for statefulset in args.statefulsets.iter() {
             pod_list.append(
-                &mut k8s::get_pod_list_for_statefulset(&client, statefulset, &args.namespace)
-                    .await?,
+                &mut k8s::get_pod_list_for_resource::<StatefulSet>(
+                    &client,
+                    statefulset,
+                    &args.namespace,
+                )
+                .await?,
             );
         }
     }
 
     if !args.daemonsets.is_empty() {
         for ds in args.daemonsets.iter() {
-            pod_list
-                .append(&mut k8s::get_pod_list_for_daemonset(&client, ds, &args.namespace).await?);
+            pod_list.append(
+                &mut k8s::get_pod_list_for_resource::<DaemonSet>(&client, ds, &args.namespace)
+                    .await?,
+            );
         }
     }
 

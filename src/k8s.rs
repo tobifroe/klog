@@ -1,19 +1,24 @@
 use std::collections::BTreeMap;
+use std::fmt::Debug;
 
 use anyhow::Ok;
 use colored::Colorize;
 use futures_util::AsyncBufReadExt;
 use futures_util::TryStreamExt;
-use k8s_openapi::api::apps::v1::DaemonSet;
-use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::apps::v1::StatefulSet;
+
 use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::serde::Deserialize;
+use k8s_openapi::NamespaceResourceScope;
+use k8s_openapi::Resource;
+use kube::api::ObjectMeta;
 use kube::api::{Api, ListParams, LogParams};
 use kube::runtime::reflector::Lookup;
 use kube::ResourceExt;
 
 use itertools::Itertools;
 
+use crate::traits;
+use crate::traits::SpecSelector;
 use crate::util;
 
 async fn get_pod_list(
@@ -37,46 +42,30 @@ async fn get_pod_list(
     Ok(pod_name_list)
 }
 
-pub async fn get_pod_list_for_deployment(
+pub async fn get_pod_list_for_resource<T>(
     client: &kube::Client,
-    deployment_name: &str,
+    resource_name: &str,
     ns_name: &str,
-) -> Result<Vec<String>, anyhow::Error> {
-    let deployment_api: Api<Deployment> = Api::namespaced(client.clone(), ns_name);
-    let deployment = deployment_api.get(deployment_name).await?;
+) -> Result<Vec<String>, anyhow::Error>
+where
+    T: Resource<Scope = NamespaceResourceScope>
+        + Clone
+        + for<'a> Deserialize<'a>
+        + Debug
+        + k8s_openapi::Metadata<Ty = ObjectMeta>
+        + traits::HasSpec,
+{
+    let api: Api<T> = Api::namespaced(client.clone(), ns_name);
+    let resource = api.get(resource_name).await?;
 
-    let spec = deployment.spec.unwrap();
-    let match_labels = spec.selector.match_labels.unwrap();
-
-    let pod_name_list = get_pod_list(client, ns_name, match_labels).await?;
-    Ok(pod_name_list)
-}
-
-pub async fn get_pod_list_for_statefulset(
-    client: &kube::Client,
-    statefulset_name: &str,
-    ns_name: &str,
-) -> Result<Vec<String>, anyhow::Error> {
-    let statefulset_api: Api<StatefulSet> = Api::namespaced(client.clone(), ns_name);
-    let statefulset = statefulset_api.get(statefulset_name).await?;
-
-    let spec = statefulset.spec.unwrap();
-    let match_labels = spec.selector.match_labels.unwrap();
-
-    let pod_name_list = get_pod_list(client, ns_name, match_labels).await?;
-    Ok(pod_name_list)
-}
-
-pub async fn get_pod_list_for_daemonset(
-    client: &kube::Client,
-    daemonset_name: &str,
-    ns_name: &str,
-) -> Result<Vec<String>, anyhow::Error> {
-    let ds_api: Api<DaemonSet> = Api::namespaced(client.clone(), ns_name);
-    let ds = ds_api.get(daemonset_name).await?;
-
-    let spec = ds.spec.unwrap();
-    let match_labels = spec.selector.match_labels.unwrap();
+    // Retrieve `selector` from `spec` using `SpecSelector` trait.
+    let match_labels = resource
+        .spec()
+        .and_then(|spec| spec.selector())
+        .ok_or_else(|| anyhow::anyhow!("Missing selector"))?
+        .match_labels
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("Missing match labels"))?;
 
     let pod_name_list = get_pod_list(client, ns_name, match_labels).await?;
     Ok(pod_name_list)
@@ -120,6 +109,7 @@ pub async fn stream_single_pod_logs(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use k8s_openapi::api::apps::v1::StatefulSet;
     use kube::Client;
 
     #[tokio::test]
@@ -138,5 +128,18 @@ mod tests {
         let pod_list_result = get_pod_list(&client, "statefulset", match_labels).await;
         let pod_list = pod_list_result.unwrap();
         assert_eq!(pod_list.first().unwrap(), expected_pod_list_item);
+    }
+
+    #[tokio::test]
+    async fn test_get_pod_list_for_resource() {
+        let expected_pod_list_item = "web-0";
+        let client_result = Client::try_default().await;
+        let client = client_result.unwrap();
+
+        let ns_name = "statefulset";
+        let resource_name = "web";
+        let result =
+            get_pod_list_for_resource::<StatefulSet>(&client, resource_name, ns_name).await;
+        assert_eq!(result.unwrap().first().unwrap(), expected_pod_list_item);
     }
 }
