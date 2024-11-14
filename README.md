@@ -31,8 +31,12 @@ klog -n my-namespace -p pod1 pod2 pod3 -f
 -n, --namespace <NAMESPACE>          Namespace to use
 -p, --pods <PODS>...                 Pods to log
 -d, --deployments <DEPLOYMENTS>...   Deployments to log
+    --daemonsets <DAEMONSETS>...     Daemonsets to log
+    --jobs <JOBS>...                 Jobs to log
 -s, --statefulsets <STATEFULSETS>... Statefulsets to log
 -f, --follow                         Follow log?
+-h, --help                           Print help
+-V, --version                        Print version
 ```
 
 ## Example
