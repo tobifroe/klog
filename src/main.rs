@@ -3,7 +3,10 @@ pub mod traits;
 pub mod util;
 
 use clap::{ArgAction, Parser};
-use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, StatefulSet};
+use k8s_openapi::api::{
+    apps::v1::{DaemonSet, Deployment, StatefulSet},
+    batch::v1::Job,
+};
 use kube::Client;
 use tokio::task;
 
@@ -26,6 +29,10 @@ struct Args {
     #[arg(long, value_delimiter = ' ', num_args = 1..)]
     daemonsets: Vec<String>,
 
+    /// Jobs to log
+    #[arg(long, value_delimiter = ' ', num_args = 1..)]
+    jobs: Vec<String>,
+
     /// Pods to log
     #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
     pods: Vec<String>,
@@ -43,34 +50,62 @@ async fn main() -> anyhow::Result<()> {
 
     let mut pod_list = args.pods;
 
-    if !args.deployments.is_empty() {
-        for deploy in args.deployments.iter() {
-            pod_list.append(
-                &mut k8s::get_pod_list_for_resource::<Deployment>(&client, deploy, &args.namespace)
-                    .await?,
-            );
-        }
+    enum ResourceType<'a> {
+        Deployment(&'a str),
+        StatefulSet(&'a str),
+        DaemonSet(&'a str),
+        Job(&'a str),
     }
 
-    if !args.statefulsets.is_empty() {
-        for statefulset in args.statefulsets.iter() {
-            pod_list.append(
-                &mut k8s::get_pod_list_for_resource::<StatefulSet>(
-                    &client,
-                    statefulset,
-                    &args.namespace,
-                )
-                .await?,
-            );
-        }
-    }
+    let mut resources = Vec::new();
 
-    if !args.daemonsets.is_empty() {
-        for ds in args.daemonsets.iter() {
-            pod_list.append(
-                &mut k8s::get_pod_list_for_resource::<DaemonSet>(&client, ds, &args.namespace)
+    resources.extend(
+        args.deployments
+            .iter()
+            .map(|deploy| ResourceType::Deployment(deploy)),
+    );
+    resources.extend(
+        args.statefulsets
+            .iter()
+            .map(|statefulset| ResourceType::StatefulSet(statefulset)),
+    );
+    resources.extend(args.daemonsets.iter().map(|ds| ResourceType::DaemonSet(ds)));
+    resources.extend(args.jobs.iter().map(|job| ResourceType::Job((job))));
+
+    for resource in resources {
+        match resource {
+            ResourceType::Deployment(deploy) => {
+                pod_list.append(
+                    &mut k8s::get_pod_list_for_resource::<Deployment>(
+                        &client,
+                        deploy,
+                        &args.namespace,
+                    )
                     .await?,
-            );
+                );
+            }
+            ResourceType::StatefulSet(statefulset) => {
+                pod_list.append(
+                    &mut k8s::get_pod_list_for_resource::<StatefulSet>(
+                        &client,
+                        statefulset,
+                        &args.namespace,
+                    )
+                    .await?,
+                );
+            }
+            ResourceType::DaemonSet(ds) => {
+                pod_list.append(
+                    &mut k8s::get_pod_list_for_resource::<DaemonSet>(&client, ds, &args.namespace)
+                        .await?,
+                );
+            }
+            ResourceType::Job(job) => {
+                pod_list.append(
+                    &mut k8s::get_pod_list_for_resource::<Job>(&client, job, &args.namespace)
+                        .await?,
+                );
+            }
         }
     }
 
