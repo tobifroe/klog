@@ -70,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
             .map(|statefulset| ResourceType::StatefulSet(statefulset)),
     );
     resources.extend(args.daemonsets.iter().map(|ds| ResourceType::DaemonSet(ds)));
-    resources.extend(args.jobs.iter().map(|job| ResourceType::Job((job))));
+    resources.extend(args.jobs.iter().map(|job| ResourceType::Job(job)));
 
     for resource in resources {
         match resource {
