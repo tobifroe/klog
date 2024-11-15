@@ -41,6 +41,12 @@ struct Args {
     #[arg(short, long, action = ArgAction::SetTrue)]
     follow: bool,
 }
+enum ResourceType<'a> {
+    Deployment(&'a str),
+    StatefulSet(&'a str),
+    DaemonSet(&'a str),
+    Job(&'a str),
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -49,13 +55,6 @@ async fn main() -> anyhow::Result<()> {
     let client = Client::try_default().await?;
 
     let mut pod_list = args.pods;
-
-    enum ResourceType<'a> {
-        Deployment(&'a str),
-        StatefulSet(&'a str),
-        DaemonSet(&'a str),
-        Job(&'a str),
-    }
 
     let mut resources = Vec::new();
 
@@ -131,4 +130,43 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_resource_processing() -> Result<(), anyhow::Error> {
+        let args = Args {
+            deployments: vec!["deploy1".into()],
+            statefulsets: vec!["statefulset1".into()],
+            daemonsets: vec!["daemonset1".into()],
+            jobs: vec!["job1".into()],
+            pods: vec!["pod1".into()],
+            namespace: "test-namespace".into(),
+            follow: true,
+        };
+
+        let resources: Vec<_> = args
+            .deployments
+            .iter()
+            .map(|deploy| ResourceType::Deployment(deploy))
+            .chain(
+                args.statefulsets
+                    .iter()
+                    .map(|statefulset| ResourceType::StatefulSet(statefulset)),
+            )
+            .chain(args.daemonsets.iter().map(|ds| ResourceType::DaemonSet(ds)))
+            .chain(args.jobs.iter().map(|job| ResourceType::Job(job)))
+            .collect();
+
+        assert_eq!(resources.len(), 4);
+        match resources[0] {
+            ResourceType::Deployment(deploy) => assert_eq!(deploy, "deploy1"),
+            _ => panic!("Expected Deployment"),
+        }
+
+        Ok(())
+    }
 }
