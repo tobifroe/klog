@@ -5,7 +5,7 @@ pub mod util;
 use clap::{ArgAction, Parser};
 use k8s_openapi::api::{
     apps::v1::{DaemonSet, Deployment, StatefulSet},
-    batch::v1::{Job, CronJob},
+    batch::v1::{CronJob, Job},
 };
 use kube::Client;
 use tokio::task;
@@ -110,11 +110,10 @@ async fn main() -> anyhow::Result<()> {
                         .await?,
                 );
             }
-            ResourceType::CronJob(cronjob) => {
-                pod_list.append(
-                    &mut k8s::get_pod_list_for_resource::<CronJob>(&client, cronjob, &args.namespace).await?,
-                )
-            }
+            ResourceType::CronJob(cronjob) => pod_list.append(
+                &mut k8s::get_pod_list_for_resource::<CronJob>(&client, cronjob, &args.namespace)
+                    .await?,
+            ),
         }
     }
 
@@ -170,10 +169,14 @@ mod tests {
             )
             .chain(args.daemonsets.iter().map(|ds| ResourceType::DaemonSet(ds)))
             .chain(args.jobs.iter().map(|job| ResourceType::Job(job)))
-            .chain(args.cronjobs.iter().map(|cronjob| ResourceType::CronJob(cronjob)))
+            .chain(
+                args.cronjobs
+                    .iter()
+                    .map(|cronjob| ResourceType::CronJob(cronjob)),
+            )
             .collect();
 
-        assert_eq!(resources.len(), 4);
+        assert_eq!(resources.len(), 5);
         match resources[0] {
             ResourceType::Deployment(deploy) => assert_eq!(deploy, "deploy1"),
             _ => panic!("Expected Deployment"),

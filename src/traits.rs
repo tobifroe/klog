@@ -34,7 +34,10 @@ impl SpecSelector for k8s_openapi::api::batch::v1::JobSpec {
 
 impl SpecSelector for k8s_openapi::api::batch::v1::CronJobSpec {
     fn selector(&self) -> Option<&LabelSelector> {
-        self.selector()
+        self.job_template
+            .spec
+            .as_ref()
+            .and_then(|spec| spec.selector.as_ref())
     }
 }
 
@@ -90,6 +93,12 @@ impl HasSpec for CronJob {
         self.spec.as_ref()
     }
     fn selector(&self) -> Option<&LabelSelector> {
-       self.spec.unwrap().selector()
+        self.spec.as_ref().and_then(|spec| {
+            spec.job_template
+                .spec
+                .as_ref() // Safely access the inner Option
+                .and_then(|job_spec| job_spec.selector.as_ref()) // Safely access the selector field
+        })
     }
 }
+
