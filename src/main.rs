@@ -5,7 +5,7 @@ pub mod util;
 use clap::{ArgAction, Parser};
 use k8s_openapi::api::{
     apps::v1::{DaemonSet, Deployment, StatefulSet},
-    batch::v1::Job,
+    batch::v1::{CronJob, Job},
 };
 use kube::Client;
 use tokio::task;
@@ -33,6 +33,10 @@ struct Args {
     #[arg(long, value_delimiter = ' ', num_args = 1..)]
     jobs: Vec<String>,
 
+    /// CronJobs to log
+    #[arg(long, value_delimiter = ' ', num_args = 1..)]
+    cronjobs: Vec<String>,
+
     /// Pods to log
     #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
     pods: Vec<String>,
@@ -46,6 +50,7 @@ enum ResourceType<'a> {
     StatefulSet(&'a str),
     DaemonSet(&'a str),
     Job(&'a str),
+    CronJob(&'a str),
 }
 
 #[tokio::main]
@@ -105,6 +110,10 @@ async fn main() -> anyhow::Result<()> {
                         .await?,
                 );
             }
+            ResourceType::CronJob(cronjob) => pod_list.append(
+                &mut k8s::get_pod_list_for_resource::<CronJob>(&client, cronjob, &args.namespace)
+                    .await?,
+            ),
         }
     }
 
@@ -143,6 +152,7 @@ mod tests {
             statefulsets: vec!["statefulset1".into()],
             daemonsets: vec!["daemonset1".into()],
             jobs: vec!["job1".into()],
+            cronjobs: vec!["job2".into()],
             pods: vec!["pod1".into()],
             namespace: "test-namespace".into(),
             follow: true,
@@ -159,9 +169,14 @@ mod tests {
             )
             .chain(args.daemonsets.iter().map(|ds| ResourceType::DaemonSet(ds)))
             .chain(args.jobs.iter().map(|job| ResourceType::Job(job)))
+            .chain(
+                args.cronjobs
+                    .iter()
+                    .map(|cronjob| ResourceType::CronJob(cronjob)),
+            )
             .collect();
 
-        assert_eq!(resources.len(), 4);
+        assert_eq!(resources.len(), 5);
         match resources[0] {
             ResourceType::Deployment(deploy) => assert_eq!(deploy, "deploy1"),
             _ => panic!("Expected Deployment"),
