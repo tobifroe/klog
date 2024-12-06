@@ -873,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "klog"
-version = "0.2.1"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
