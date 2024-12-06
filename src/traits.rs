@@ -102,3 +102,129 @@ impl HasSpec for CronJob {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use k8s_openapi::api::{
+        apps::v1::{
+            DaemonSet, DaemonSetSpec, Deployment, DeploymentSpec, StatefulSet, StatefulSetSpec,
+        },
+        batch::v1::{Job, JobSpec},
+    };
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::LabelSelector;
+
+    fn create_label_selector() -> LabelSelector {
+        LabelSelector {
+            match_labels: Some(
+                [("key".to_string(), "value".to_string())]
+                    .into_iter()
+                    .collect(),
+            ),
+            match_expressions: None,
+        }
+    }
+
+    #[test]
+    fn test_spec_selector_for_deployment() {
+        let selector = create_label_selector();
+        let spec = DeploymentSpec {
+            selector: selector.clone(),
+            ..Default::default()
+        };
+
+        assert_eq!(spec.selector().unwrap(), &selector);
+    }
+
+    #[test]
+    fn test_spec_selector_for_statefulset() {
+        let selector = create_label_selector();
+        let spec = StatefulSetSpec {
+            selector: selector.clone(),
+            ..Default::default()
+        };
+
+        assert_eq!(spec.selector().unwrap(), &selector);
+    }
+
+    #[test]
+    fn test_spec_selector_for_daemonset() {
+        let selector = create_label_selector();
+        let spec = DaemonSetSpec {
+            selector: selector.clone(),
+            ..Default::default()
+        };
+
+        assert_eq!(spec.selector().unwrap(), &selector);
+    }
+
+    #[test]
+    fn test_spec_selector_for_job() {
+        let selector = create_label_selector();
+        let spec = JobSpec {
+            selector: Some(selector.clone()),
+            ..Default::default()
+        };
+
+        assert_eq!(spec.selector().unwrap(), &selector);
+    }
+
+    #[test]
+    fn test_has_spec_for_deployment() {
+        let selector = create_label_selector();
+        let spec = DeploymentSpec {
+            selector: selector.clone(),
+            ..Default::default()
+        };
+        let deployment = Deployment {
+            spec: Some(spec),
+            ..Default::default()
+        };
+
+        assert_eq!(deployment.selector().unwrap(), &selector);
+    }
+
+    #[test]
+    fn test_has_spec_for_statefulset() {
+        let selector = create_label_selector();
+        let spec = StatefulSetSpec {
+            selector: selector.clone(),
+            ..Default::default()
+        };
+        let statefulset = StatefulSet {
+            spec: Some(spec),
+            ..Default::default()
+        };
+
+        assert_eq!(statefulset.selector().unwrap(), &selector);
+    }
+
+    #[test]
+    fn test_has_spec_for_daemonset() {
+        let selector = create_label_selector();
+        let spec = DaemonSetSpec {
+            selector: selector.clone(),
+            ..Default::default()
+        };
+        let daemonset = DaemonSet {
+            spec: Some(spec),
+            ..Default::default()
+        };
+
+        assert_eq!(daemonset.selector().unwrap(), &selector);
+    }
+
+    #[test]
+    fn test_has_spec_for_job() {
+        let selector = create_label_selector();
+        let spec = JobSpec {
+            selector: Some(selector.clone()),
+            ..Default::default()
+        };
+        let job = Job {
+            spec: Some(spec),
+            ..Default::default()
+        };
+
+        assert_eq!(job.selector().unwrap(), &selector);
+    }
+}
