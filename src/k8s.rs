@@ -76,6 +76,7 @@ pub async fn stream_single_pod_logs(
     pod_name: &str,
     ns_name: &str,
     follow: &bool,
+    filter: &str,
 ) -> Result<(), anyhow::Error> {
     let pods: Api<Pod> = Api::namespaced(client.clone(), ns_name);
     let pod = pods.get(pod_name).await?;
@@ -100,7 +101,9 @@ pub async fn stream_single_pod_logs(
 
     while let Some(line) = logs.try_next().await? {
         let pretty_pod_name = &pod.name_any().truecolor(color.r, color.g, color.b);
-        println!("{} {}", pretty_pod_name, line);
+        if (filter.len() > 0 && line.contains(filter)) || filter.len() == 0 {
+            println!("{} {}", pretty_pod_name, line);
+        }
     }
 
     Ok(())

@@ -44,6 +44,10 @@ struct Args {
     /// Follow log?
     #[arg(short, long, action = ArgAction::SetTrue)]
     follow: bool,
+
+    /// Filter
+    #[arg(long, default_value = "")]
+    filter: String,
 }
 enum ResourceType<'a> {
     Deployment(&'a str),
@@ -119,15 +123,17 @@ async fn main() -> anyhow::Result<()> {
 
     let namespace = args.namespace;
     let follow = args.follow;
+    let filter = args.filter;
 
     let mut handles = Vec::new();
 
     for pod in pod_list {
         let client = client.clone();
         let namespace = namespace.clone();
+        let filter = filter.clone();
 
         let handle = task::spawn(async move {
-            k8s::stream_single_pod_logs(&client, &pod, &namespace, &follow).await?;
+            k8s::stream_single_pod_logs(&client, &pod, &namespace, &follow, &filter).await?;
             Ok::<(), anyhow::Error>(())
         });
 
@@ -156,6 +162,7 @@ mod tests {
             pods: vec!["pod1".into()],
             namespace: "test-namespace".into(),
             follow: true,
+            filter: "".into(),
         };
 
         let resources: Vec<_> = args
