@@ -101,7 +101,7 @@ pub async fn stream_single_pod_logs(
 
     while let Some(line) = logs.try_next().await? {
         let pretty_pod_name = &pod.name_any().truecolor(color.r, color.g, color.b);
-        if (filter.len() > 0 && line.contains(filter)) || filter.len() == 0 {
+        if (!filter.is_empty() && line.contains(filter)) || filter.is_empty() {
             println!("{} {}", pretty_pod_name, line);
         }
     }
