@@ -36,6 +36,7 @@ klog -n my-namespace -p pod1 pod2 pod3 -f
     --cronjobs <CRONJOBS>...          CronJobs to log
 -p, --pods <PODS>...                  Pods to log
 -f, --follow                          Follow log?
+    --filter <FILTER>                 Filter [default: ]
 -h, --help                            Print help
 -V, --version                         Print version
 ```
