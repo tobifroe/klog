@@ -15,6 +15,6 @@ tokio = { version = "=1.43.0", features = ["full"] }
 anyhow = "=1.0.95"
 futures-util = "=0.3"
 colored = "=3.0.0"
-clap = { version = "=4.5.29", features = ["derive"] }
+clap = { version = "=4.5.30", features = ["derive"] }
 rand = "=0.8.5"
 itertools = "=0.14.0"
