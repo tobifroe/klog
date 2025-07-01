@@ -1,6 +1,6 @@
 # klog
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/tobifroe/klog)](https://rust-reportcard.xuri.me/report/github.com/tobifroe/klog)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) 
 [![Coverage Status](https://coveralls.io/repos/github/tobifroe/klog/badge.svg?branch=main)](https://coveralls.io/github/tobifroe/klog?branch=main)
 
 klog is a tool that allows you to tail logs of multiple Kubernetes pods simultaneously. 
