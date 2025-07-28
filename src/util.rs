@@ -7,10 +7,10 @@ pub struct Color {
 }
 
 pub fn get_rnd_color() -> Color {
-    let mut rng = rand::thread_rng();
-    let r = rng.gen_range(0..255);
-    let g = rng.gen_range(0..255);
-    let b = rng.gen_range(0..255);
+    let mut rng = rand::rng();
+    let r = rng.random_range(0..255);
+    let g = rng.random_range(0..255);
+    let b = rng.random_range(0..255);
     Color { r, g, b }
 }
 
