@@ -20,6 +20,8 @@ use itertools::Itertools;
 use crate::traits;
 use crate::traits::SpecSelector;
 use crate::util;
+use crate::util::get_pretty_json;
+use crate::util::maybe_parse_json;
 
 async fn get_pod_list(
     client: &kube::Client,
@@ -102,7 +104,10 @@ pub async fn stream_single_pod_logs(
     while let Some(line) = logs.try_next().await? {
         let pretty_pod_name = &pod.name_any().truecolor(color.r, color.g, color.b);
         if (!filter.is_empty() && line.contains(filter)) || filter.is_empty() {
-            println!("{} {}", pretty_pod_name, line);
+            match maybe_parse_json(&line) {
+                Some(json) => println!("{} {}", pretty_pod_name, get_pretty_json(json)),
+                None => println!("{} {}", pretty_pod_name, line),
+            }
         }
     }
 
