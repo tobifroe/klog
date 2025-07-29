@@ -6,12 +6,25 @@
 klog is a tool that allows you to tail logs of multiple Kubernetes pods simultaneously. 
 
 ## Installation
+### Cargo
 You can build and install klog using cargo:
 ```bash
 # Using Cargo
 cargo install klog
 ```
-alternatively, grab a pre-built binary for your OS from the [releases page](https://github.com/tobifroe/klog/releases).
+### Homebrew
+```bash
+brew tap tobifroe/homewbrew-klog
+brew install klog
+```
+### Nix
+Klog is [packaged in nixpkgs](https://search.nixos.org/packages?channel=25.05&show=klog-rs&from=0&size=50&sort=relevance&type=packages&query=klog-rs).
+```bash
+nix-shell -p klog-rs
+```
+
+### Manual installation
+Alternatively, grab a pre-built binary for your OS from the [releases page](https://github.com/tobifroe/klog/releases).
 Curently, there are x86_64 binaries provided for Windows, MacOS and Linux.
 
 
