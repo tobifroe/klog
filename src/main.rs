@@ -274,6 +274,7 @@ async fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kube::Client;
 
     #[tokio::test]
     async fn test_resource_processing() -> Result<(), anyhow::Error> {
@@ -315,5 +316,237 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[test]
+    fn test_resource_type_creation() {
+        let deployment = ResourceType::Deployment("test-deploy".to_string());
+        let statefulset = ResourceType::StatefulSet("test-ss".to_string());
+        let daemonset = ResourceType::DaemonSet("test-ds".to_string());
+        let job = ResourceType::Job("test-job".to_string());
+        let cronjob = ResourceType::CronJob("test-cj".to_string());
+
+        match deployment {
+            ResourceType::Deployment(name) => assert_eq!(name, "test-deploy"),
+            _ => panic!("Expected Deployment"),
+        }
+
+        match statefulset {
+            ResourceType::StatefulSet(name) => assert_eq!(name, "test-ss"),
+            _ => panic!("Expected StatefulSet"),
+        }
+
+        match daemonset {
+            ResourceType::DaemonSet(name) => assert_eq!(name, "test-ds"),
+            _ => panic!("Expected DaemonSet"),
+        }
+
+        match job {
+            ResourceType::Job(name) => assert_eq!(name, "test-job"),
+            _ => panic!("Expected Job"),
+        }
+
+        match cronjob {
+            ResourceType::CronJob(name) => assert_eq!(name, "test-cj"),
+            _ => panic!("Expected CronJob"),
+        }
+    }
+
+    #[test]
+    fn test_resource_info_creation() {
+        let resource_info = ResourceInfo {
+            resource_type: ResourceType::Deployment("test-deploy".to_string()),
+            namespace: "test-namespace".to_string(),
+        };
+
+        assert_eq!(resource_info.namespace, "test-namespace");
+        match resource_info.resource_type {
+            ResourceType::Deployment(name) => assert_eq!(name, "test-deploy"),
+            _ => panic!("Expected Deployment"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_pod_manager_creation() -> Result<(), anyhow::Error> {
+        let client = Client::try_default().await?;
+        let resources = vec![ResourceInfo {
+            resource_type: ResourceType::Deployment("test-deploy".to_string()),
+            namespace: "test-namespace".to_string(),
+        }];
+
+        let pod_manager = PodManager::new(
+            resources,
+            client,
+            true,
+            "test-filter".to_string(),
+        );
+
+        assert!(pod_manager.follow);
+        assert_eq!(pod_manager.filter, "test-filter");
+        assert_eq!(pod_manager.resources.len(), 1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_pod_manager_clone() -> Result<(), anyhow::Error> {
+        let client = Client::try_default().await?;
+        let resources = vec![ResourceInfo {
+            resource_type: ResourceType::Deployment("test-deploy".to_string()),
+            namespace: "test-namespace".to_string(),
+        }];
+
+        let pod_manager = PodManager::new(
+            resources,
+            client,
+            true,
+            "test-filter".to_string(),
+        );
+
+        let cloned_manager = pod_manager.clone();
+        assert_eq!(pod_manager.follow, cloned_manager.follow);
+        assert_eq!(pod_manager.filter, cloned_manager.filter);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_refresh_interval_zero_disables_refresh() -> Result<(), anyhow::Error> {
+        let client = Client::try_default().await?;
+        let resources = vec![ResourceInfo {
+            resource_type: ResourceType::Deployment("test-deploy".to_string()),
+            namespace: "test-namespace".to_string(),
+        }];
+
+        let pod_manager = PodManager::new(
+            resources,
+            client,
+            true,
+            "".to_string(),
+        );
+
+        // This should return immediately without error
+        let result = pod_manager.run_periodic_refresh(0).await;
+        assert!(result.is_ok());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_active_pods_tracking() -> Result<(), anyhow::Error> {
+        let client = Client::try_default().await?;
+        let resources = vec![ResourceInfo {
+            resource_type: ResourceType::Deployment("test-deploy".to_string()),
+            namespace: "test-namespace".to_string(),
+        }];
+
+        let pod_manager = PodManager::new(
+            resources,
+            client,
+            true,
+            "".to_string(),
+        );
+
+        // Initially no active pods
+        let active_pods = pod_manager.active_pods.read().await;
+        assert!(active_pods.is_empty());
+        drop(active_pods);
+
+        // Add a pod manually
+        let mut active_pods = pod_manager.active_pods.write().await;
+        active_pods.insert("test-pod-1".to_string());
+        active_pods.insert("test-pod-2".to_string());
+        drop(active_pods);
+
+        // Check pods are tracked
+        let active_pods = pod_manager.active_pods.read().await;
+        assert!(active_pods.contains("test-pod-1"));
+        assert!(active_pods.contains("test-pod-2"));
+        assert_eq!(active_pods.len(), 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_args_parsing_with_refresh_interval() {
+        let args = Args::try_parse_from(&[
+            "klog",
+            "--namespace", "test-ns",
+            "--refresh-interval", "60"
+        ]).unwrap();
+
+        assert_eq!(args.namespace, "test-ns");
+        assert_eq!(args.refresh_interval, 60);
+    }
+
+    #[test]
+    fn test_args_parsing_with_default_refresh_interval() {
+        let args = Args::try_parse_from(&[
+            "klog",
+            "--namespace", "test-ns"
+        ]).unwrap();
+
+        assert_eq!(args.namespace, "test-ns");
+        assert_eq!(args.refresh_interval, 30); // default value
+    }
+
+    #[test]
+    fn test_args_parsing_disable_refresh() {
+        let args = Args::try_parse_from(&[
+            "klog",
+            "--namespace", "test-ns",
+            "--refresh-interval", "0"
+        ]).unwrap();
+
+        assert_eq!(args.namespace, "test-ns");
+        assert_eq!(args.refresh_interval, 0);
+    }
+
+    #[tokio::test]
+    async fn test_start_pod_logs_spawns_task() -> Result<(), anyhow::Error> {
+        let client = Client::try_default().await?;
+        let resources = vec![ResourceInfo {
+            resource_type: ResourceType::Deployment("test-deploy".to_string()),
+            namespace: "test-namespace".to_string(),
+        }];
+
+        let pod_manager = PodManager::new(
+            resources,
+            client,
+            true,
+            "".to_string(),
+        );
+
+        let result = pod_manager.start_pod_logs("test-pod".to_string()).await;
+        assert!(result.is_ok());
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_resource_type_debug() {
+        let deployment = ResourceType::Deployment("test-deploy".to_string());
+        let debug_str = format!("{:?}", deployment);
+        assert!(debug_str.contains("Deployment"));
+        assert!(debug_str.contains("test-deploy"));
+    }
+
+    #[test]
+    fn test_resource_info_clone() {
+        let original = ResourceInfo {
+            resource_type: ResourceType::Deployment("test-deploy".to_string()),
+            namespace: "test-namespace".to_string(),
+        };
+
+        let cloned = original.clone();
+        assert_eq!(original.namespace, cloned.namespace);
+        match (&original.resource_type, &cloned.resource_type) {
+            (ResourceType::Deployment(name1), ResourceType::Deployment(name2)) => {
+                assert_eq!(name1, name2);
+            }
+            _ => panic!("Expected both to be Deployments"),
+        }
     }
 }
