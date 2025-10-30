@@ -3,6 +3,7 @@
   "extends": [
     "config:recommended"
   ],
+  "reviewers": ["tobifroe"],
   "packageRules": [
     {
       "matchPackageNames": ["/kube/", "/k8s-openapi/"],
