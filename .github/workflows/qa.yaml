@@ -13,7 +13,7 @@ jobs:
   clippy_check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - run: rustup component add clippy
       - uses: giraffate/clippy-action@v1 
         with:
@@ -29,7 +29,7 @@ jobs:
         uses: medyagh/setup-minikube@latest
         with:
           start: false
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: setup test cluster
         run: make prepare_tests
       - name: run tests
