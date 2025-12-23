@@ -8,7 +8,7 @@ prepare_tests:
 	kubectl apply -f tests/hack/daemonset.yaml
 
 test:
-	cargo test
+	cargo test --features integration-tests
 
 cleanup_tests:
 	minikube delete

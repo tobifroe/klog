@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 
+use async_trait::async_trait;
 use anyhow::Ok;
 use colored::Colorize;
 use futures_util::AsyncBufReadExt;
@@ -22,6 +23,102 @@ use crate::traits::SpecSelector;
 use crate::util;
 use crate::util::get_pretty_json;
 use crate::util::maybe_parse_json;
+
+#[derive(Clone, Debug)]
+pub enum ResourceType {
+    Deployment(String),
+    StatefulSet(String),
+    DaemonSet(String),
+    Job(String),
+    CronJob(String),
+}
+
+#[derive(Clone)]
+pub struct ResourceInfo {
+    pub resource_type: ResourceType,
+    pub namespace: String,
+}
+
+#[async_trait]
+pub trait K8sClient: Send + Sync {
+    async fn pods_for_resource(&self, resource: &ResourceInfo) -> Result<Vec<String>, anyhow::Error>;
+
+    async fn stream_pod_logs(
+        &self,
+        pod_name: &str,
+        ns_name: &str,
+        follow: bool,
+        filter: &str,
+    ) -> Result<(), anyhow::Error>;
+}
+
+pub struct RealK8sClient {
+    client: kube::Client,
+}
+
+impl RealK8sClient {
+    pub fn new(client: kube::Client) -> Self {
+        Self { client }
+    }
+}
+
+#[async_trait]
+impl K8sClient for RealK8sClient {
+    async fn pods_for_resource(&self, resource: &ResourceInfo) -> Result<Vec<String>, anyhow::Error> {
+        match &resource.resource_type {
+            ResourceType::Deployment(name) => {
+                get_pod_list_for_resource::<k8s_openapi::api::apps::v1::Deployment>(
+                    &self.client,
+                    name,
+                    &resource.namespace,
+                )
+                .await
+            }
+            ResourceType::StatefulSet(name) => {
+                get_pod_list_for_resource::<k8s_openapi::api::apps::v1::StatefulSet>(
+                    &self.client,
+                    name,
+                    &resource.namespace,
+                )
+                .await
+            }
+            ResourceType::DaemonSet(name) => {
+                get_pod_list_for_resource::<k8s_openapi::api::apps::v1::DaemonSet>(
+                    &self.client,
+                    name,
+                    &resource.namespace,
+                )
+                .await
+            }
+            ResourceType::Job(name) => {
+                get_pod_list_for_resource::<k8s_openapi::api::batch::v1::Job>(
+                    &self.client,
+                    name,
+                    &resource.namespace,
+                )
+                .await
+            }
+            ResourceType::CronJob(name) => {
+                get_pod_list_for_resource::<k8s_openapi::api::batch::v1::CronJob>(
+                    &self.client,
+                    name,
+                    &resource.namespace,
+                )
+                .await
+            }
+        }
+    }
+
+    async fn stream_pod_logs(
+        &self,
+        pod_name: &str,
+        ns_name: &str,
+        follow: bool,
+        filter: &str,
+    ) -> Result<(), anyhow::Error> {
+        stream_single_pod_logs(&self.client, pod_name, ns_name, &follow, &filter).await
+    }
+}
 
 async fn get_pod_list(
     client: &kube::Client,
@@ -116,6 +213,12 @@ pub async fn stream_single_pod_logs(
 
 #[cfg(test)]
 mod tests {
+    // Cluster-backed tests are gated behind the `integration-tests` feature
+    // to keep `cargo test` unit-only by default.
+}
+
+#[cfg(all(test, feature = "integration-tests"))]
+mod integration_tests {
     use super::*;
     use k8s_openapi::api::apps::v1::StatefulSet;
     use kube::Client;
@@ -123,26 +226,25 @@ mod tests {
     #[tokio::test]
     async fn test_get_pod_list() {
         let expected_pod_list_item = "web-0";
-        let client_result = Client::try_default().await;
-        let client = client_result.unwrap();
+        let client = Client::try_default().await.unwrap();
 
         let ns_name = "statefulset";
         let statefulset_name = "web";
         let statefulset_api: Api<StatefulSet> = Api::namespaced(client.clone(), ns_name);
-        let statefulset = statefulset_api.get(statefulset_name).await;
+        let statefulset = statefulset_api.get(statefulset_name).await.unwrap();
 
-        let spec = statefulset.unwrap().spec.unwrap();
+        let spec = statefulset.spec.unwrap();
         let match_labels = spec.selector.match_labels.unwrap();
-        let pod_list_result = get_pod_list(&client, "statefulset", match_labels).await;
-        let pod_list = pod_list_result.unwrap();
+        let pod_list = get_pod_list(&client, "statefulset", match_labels)
+            .await
+            .unwrap();
         assert_eq!(pod_list.first().unwrap(), expected_pod_list_item);
     }
 
     #[tokio::test]
     async fn test_get_pod_list_for_resource() {
         let expected_pod_list_item = "web-0";
-        let client_result = Client::try_default().await;
-        let client = client_result.unwrap();
+        let client = Client::try_default().await.unwrap();
 
         let ns_name = "statefulset";
         let resource_name = "web";
