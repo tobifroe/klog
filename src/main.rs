@@ -3,16 +3,16 @@ pub mod traits;
 pub mod util;
 
 use clap::{ArgAction, Parser};
-use k8s_openapi::api::{
-    apps::v1::{DaemonSet, Deployment, StatefulSet},
-    batch::v1::{CronJob, Job},
-};
 use kube::Client;
 use std::collections::HashSet;
 use std::sync::Arc;
+use tokio::signal;
 use tokio::sync::RwLock;
 use tokio::task;
 use tokio::time::{interval, Duration};
+use tokio_util::sync::CancellationToken;
+
+use crate::k8s::{K8sClient, RealK8sClient, ResourceInfo, ResourceType};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -57,54 +57,48 @@ struct Args {
     #[arg(long, default_value = "30")]
     refresh_interval: u64,
 }
-#[derive(Clone, Debug)]
-enum ResourceType {
-    Deployment(String),
-    StatefulSet(String),
-    DaemonSet(String),
-    Job(String),
-    CronJob(String),
-}
-
-#[derive(Clone)]
-struct ResourceInfo {
-    resource_type: ResourceType,
-    namespace: String,
-}
-
 #[derive(Clone)]
 struct PodManager {
     active_pods: Arc<RwLock<HashSet<String>>>,
     resources: Arc<Vec<ResourceInfo>>,
-    client: Client,
+    namespace: String,
+    client: Arc<dyn K8sClient>,
     follow: bool,
     filter: String,
+    shutdown: CancellationToken,
 }
 
 impl PodManager {
     fn new(
         resources: Vec<ResourceInfo>,
-        client: Client,
+        namespace: String,
+        client: Arc<dyn K8sClient>,
         follow: bool,
         filter: String,
+        shutdown: CancellationToken,
     ) -> Self {
         Self {
             active_pods: Arc::new(RwLock::new(HashSet::new())),
             resources: Arc::new(resources),
+            namespace,
             client,
             follow,
             filter,
+            shutdown,
         }
     }
 
     async fn start_pod_logs(&self, pod_name: String) -> anyhow::Result<()> {
         let client = self.client.clone();
-        let namespace = self.resources[0].namespace.clone();
+        let namespace = self.namespace.clone();
         let follow = self.follow;
         let filter = self.filter.clone();
 
         task::spawn(async move {
-            if let Err(e) = k8s::stream_single_pod_logs(&client, &pod_name, &namespace, &follow, &filter).await {
+            if let Err(e) = client
+                .stream_pod_logs(&pod_name, &namespace, follow, &filter)
+                .await
+            {
                 eprintln!("Error streaming logs for pod {}: {}", pod_name, e);
             }
         });
@@ -116,49 +110,7 @@ impl PodManager {
         let mut new_pods = Vec::new();
 
         for resource_info in self.resources.iter() {
-            let pods = match &resource_info.resource_type {
-                ResourceType::Deployment(name) => {
-                    k8s::get_pod_list_for_resource::<Deployment>(
-                        &self.client,
-                        name,
-                        &resource_info.namespace,
-                    )
-                    .await?
-                }
-                ResourceType::StatefulSet(name) => {
-                    k8s::get_pod_list_for_resource::<StatefulSet>(
-                        &self.client,
-                        name,
-                        &resource_info.namespace,
-                    )
-                    .await?
-                }
-                ResourceType::DaemonSet(name) => {
-                    k8s::get_pod_list_for_resource::<DaemonSet>(
-                        &self.client,
-                        name,
-                        &resource_info.namespace,
-                    )
-                    .await?
-                }
-                ResourceType::Job(name) => {
-                    k8s::get_pod_list_for_resource::<Job>(
-                        &self.client,
-                        name,
-                        &resource_info.namespace,
-                    )
-                    .await?
-                }
-                ResourceType::CronJob(name) => {
-                    k8s::get_pod_list_for_resource::<CronJob>(
-                        &self.client,
-                        name,
-                        &resource_info.namespace,
-                    )
-                    .await?
-                }
-            };
-
+            let pods = self.client.pods_for_resource(resource_info).await?;
             new_pods.extend(pods);
         }
 
@@ -182,13 +134,19 @@ impl PodManager {
         }
 
         let mut interval = interval(Duration::from_secs(interval_seconds));
-        
+        let shutdown = self.shutdown.clone();
+
         loop {
-            interval.tick().await;
-            if let Err(e) = self.discover_and_start_new_pods().await {
-                eprintln!("Error during periodic pod discovery: {}", e);
+            tokio::select! {
+                _ = shutdown.cancelled() => break,
+                _ = interval.tick() => {
+                    if let Err(e) = self.discover_and_start_new_pods().await {
+                        eprintln!("Error during periodic pod discovery: {}", e);
+                    }
+                }
             }
         }
+        Ok(())
     }
 }
 
@@ -196,7 +154,19 @@ impl PodManager {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
+    if args.deployments.is_empty()
+        && args.statefulsets.is_empty()
+        && args.daemonsets.is_empty()
+        && args.jobs.is_empty()
+        && args.cronjobs.is_empty()
+        && args.pods.is_empty()
+    {
+        anyhow::bail!("Specify at least one pod or Kubernetes resource to stream logs from");
+    }
+
     let client = Client::try_default().await?;
+    let k8s_client: Arc<dyn K8sClient> = Arc::new(RealK8sClient::new(client.clone()));
+    let shutdown = CancellationToken::new();
 
     // Build resource list
     let mut resource_infos = Vec::new();
@@ -239,9 +209,11 @@ async fn main() -> anyhow::Result<()> {
     // Create pod manager
     let pod_manager = PodManager::new(
         resource_infos,
-        client.clone(),
+        args.namespace.clone(),
+        k8s_client.clone(),
         args.follow,
         args.filter.clone(),
+        shutdown.clone(),
     );
 
     // Start with initial pod discovery
@@ -258,212 +230,193 @@ async fn main() -> anyhow::Result<()> {
     // Start periodic refresh if enabled
     if args.refresh_interval > 0 {
         let pod_manager_clone = pod_manager.clone();
+        let refresh_interval = args.refresh_interval;
         task::spawn(async move {
-            if let Err(e) = pod_manager_clone.run_periodic_refresh(args.refresh_interval).await {
+            if let Err(e) = pod_manager_clone.run_periodic_refresh(refresh_interval).await {
                 eprintln!("Periodic refresh task failed: {}", e);
             }
         });
     }
 
-    // Keep the main thread alive
-    loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
+    signal::ctrl_c().await?;
+    shutdown.cancel();
+
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kube::Client;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    use tokio::time::timeout;
 
-    #[tokio::test]
-    async fn test_resource_processing() -> Result<(), anyhow::Error> {
-        let args = Args {
-            deployments: vec!["deploy1".into()],
-            statefulsets: vec!["statefulset1".into()],
-            daemonsets: vec!["daemonset1".into()],
-            jobs: vec!["job1".into()],
-            cronjobs: vec!["job2".into()],
-            pods: vec!["pod1".into()],
-            namespace: "test-namespace".into(),
-            follow: true,
-            filter: "".into(),
-            refresh_interval: 30,
-        };
+    use crate::k8s::K8sClient;
 
-        let resources: Vec<_> = args
-            .deployments
-            .iter()
-            .map(|deploy| ResourceType::Deployment(deploy.clone()))
-            .chain(
-                args.statefulsets
-                    .iter()
-                    .map(|statefulset| ResourceType::StatefulSet(statefulset.clone())),
-            )
-            .chain(args.daemonsets.iter().map(|ds| ResourceType::DaemonSet(ds.clone())))
-            .chain(args.jobs.iter().map(|job| ResourceType::Job(job.clone())))
-            .chain(
-                args.cronjobs
-                    .iter()
-                    .map(|cronjob| ResourceType::CronJob(cronjob.clone())),
-            )
-            .collect();
-
-        assert_eq!(resources.len(), 5);
-        match &resources[0] {
-            ResourceType::Deployment(deploy) => assert_eq!(deploy, "deploy1"),
-            _ => panic!("Expected Deployment"),
-        }
-
-        Ok(())
+    struct MockK8s {
+        pods_by_resource: Mutex<HashMap<String, Vec<String>>>,
+        streamed: Mutex<Vec<(String, String, bool, String)>>,
     }
 
-    #[test]
-    fn test_resource_type_creation() {
-        let deployment = ResourceType::Deployment("test-deploy".to_string());
-        let statefulset = ResourceType::StatefulSet("test-ss".to_string());
-        let daemonset = ResourceType::DaemonSet("test-ds".to_string());
-        let job = ResourceType::Job("test-job".to_string());
-        let cronjob = ResourceType::CronJob("test-cj".to_string());
-
-        match deployment {
-            ResourceType::Deployment(name) => assert_eq!(name, "test-deploy"),
-            _ => panic!("Expected Deployment"),
-        }
-
-        match statefulset {
-            ResourceType::StatefulSet(name) => assert_eq!(name, "test-ss"),
-            _ => panic!("Expected StatefulSet"),
-        }
-
-        match daemonset {
-            ResourceType::DaemonSet(name) => assert_eq!(name, "test-ds"),
-            _ => panic!("Expected DaemonSet"),
-        }
-
-        match job {
-            ResourceType::Job(name) => assert_eq!(name, "test-job"),
-            _ => panic!("Expected Job"),
-        }
-
-        match cronjob {
-            ResourceType::CronJob(name) => assert_eq!(name, "test-cj"),
-            _ => panic!("Expected CronJob"),
+    impl MockK8s {
+        fn new(pods_by_resource: HashMap<String, Vec<String>>) -> Self {
+            Self {
+                pods_by_resource: Mutex::new(pods_by_resource),
+                streamed: Mutex::new(Vec::new()),
+            }
         }
     }
 
-    #[test]
-    fn test_resource_info_creation() {
-        let resource_info = ResourceInfo {
-            resource_type: ResourceType::Deployment("test-deploy".to_string()),
-            namespace: "test-namespace".to_string(),
-        };
+    #[async_trait::async_trait]
+    impl K8sClient for MockK8s {
+        async fn pods_for_resource(&self, resource: &ResourceInfo) -> Result<Vec<String>, anyhow::Error> {
+            let key = match &resource.resource_type {
+                ResourceType::Deployment(name)
+                | ResourceType::StatefulSet(name)
+                | ResourceType::DaemonSet(name)
+                | ResourceType::Job(name)
+                | ResourceType::CronJob(name) => name.clone(),
+            };
+            let map = self.pods_by_resource.lock().unwrap();
+            Ok(map.get(&key).cloned().unwrap_or_default())
+        }
 
-        assert_eq!(resource_info.namespace, "test-namespace");
-        match resource_info.resource_type {
-            ResourceType::Deployment(name) => assert_eq!(name, "test-deploy"),
-            _ => panic!("Expected Deployment"),
+        async fn stream_pod_logs(
+            &self,
+            pod_name: &str,
+            ns_name: &str,
+            follow: bool,
+            filter: &str,
+        ) -> Result<(), anyhow::Error> {
+            let mut streamed = self.streamed.lock().unwrap();
+            streamed.push((
+                pod_name.to_string(),
+                ns_name.to_string(),
+                follow,
+                filter.to_string(),
+            ));
+            Ok(())
         }
     }
 
     #[tokio::test]
-    async fn test_pod_manager_creation() -> Result<(), anyhow::Error> {
-        let client = Client::try_default().await?;
+    async fn test_discover_starts_new_pods() -> Result<(), anyhow::Error> {
+        let mock = Arc::new(MockK8s::new(HashMap::from([(
+            "deploy1".to_string(),
+            vec!["pod-a".to_string()],
+        )])));
         let resources = vec![ResourceInfo {
-            resource_type: ResourceType::Deployment("test-deploy".to_string()),
-            namespace: "test-namespace".to_string(),
+            resource_type: ResourceType::Deployment("deploy1".to_string()),
+            namespace: "test-ns".to_string(),
         }];
 
-        let pod_manager = PodManager::new(
+        let manager = PodManager::new(
             resources,
-            client,
+            "test-ns".to_string(),
+            mock.clone(),
             true,
-            "test-filter".to_string(),
+            "".to_string(),
+            CancellationToken::new(),
         );
 
-        assert!(pod_manager.follow);
-        assert_eq!(pod_manager.filter, "test-filter");
-        assert_eq!(pod_manager.resources.len(), 1);
+        manager.discover_and_start_new_pods().await?;
 
+        let active = manager.active_pods.read().await;
+        assert!(active.contains("pod-a"));
+
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let streamed = mock.streamed.lock().unwrap();
+        assert_eq!(streamed.len(), 1);
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_pod_manager_clone() -> Result<(), anyhow::Error> {
-        let client = Client::try_default().await?;
+    async fn test_discover_skips_existing_pods() -> Result<(), anyhow::Error> {
+        let mock = Arc::new(MockK8s::new(HashMap::from([(
+            "deploy1".to_string(),
+            vec!["pod-a".to_string()],
+        )])));
         let resources = vec![ResourceInfo {
-            resource_type: ResourceType::Deployment("test-deploy".to_string()),
-            namespace: "test-namespace".to_string(),
+            resource_type: ResourceType::Deployment("deploy1".to_string()),
+            namespace: "test-ns".to_string(),
         }];
 
-        let pod_manager = PodManager::new(
+        let manager = PodManager::new(
             resources,
-            client,
+            "test-ns".to_string(),
+            mock.clone(),
             true,
-            "test-filter".to_string(),
+            "".to_string(),
+            CancellationToken::new(),
+        );
+        {
+            let mut active = manager.active_pods.write().await;
+            active.insert("pod-a".to_string());
+        }
+
+        manager.discover_and_start_new_pods().await?;
+        let streamed = mock.streamed.lock().unwrap();
+        assert!(streamed.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_start_pod_logs_uses_namespace() -> Result<(), anyhow::Error> {
+        let mock = Arc::new(MockK8s::new(HashMap::new()));
+        let manager = PodManager::new(
+            vec![],
+            "custom-ns".to_string(),
+            mock.clone(),
+            true,
+            "filter".to_string(),
+            CancellationToken::new(),
         );
 
-        let cloned_manager = pod_manager.clone();
-        assert_eq!(pod_manager.follow, cloned_manager.follow);
-        assert_eq!(pod_manager.filter, cloned_manager.filter);
+        manager.start_pod_logs("pod-123".to_string()).await?;
+        tokio::time::sleep(Duration::from_millis(5)).await;
 
+        let streamed = mock.streamed.lock().unwrap();
+        assert_eq!(streamed.len(), 1);
+        assert_eq!(streamed[0].1, "custom-ns");
+        assert_eq!(streamed[0].3, "filter");
         Ok(())
     }
 
     #[tokio::test]
     async fn test_refresh_interval_zero_disables_refresh() -> Result<(), anyhow::Error> {
-        let client = Client::try_default().await?;
-        let resources = vec![ResourceInfo {
-            resource_type: ResourceType::Deployment("test-deploy".to_string()),
-            namespace: "test-namespace".to_string(),
-        }];
-
-        let pod_manager = PodManager::new(
+        let mock = Arc::new(MockK8s::new(HashMap::new()));
+        let resources = vec![];
+        let manager = PodManager::new(
             resources,
-            client,
+            "test-ns".to_string(),
+            mock,
             true,
             "".to_string(),
+            CancellationToken::new(),
         );
 
-        // This should return immediately without error
-        let result = pod_manager.run_periodic_refresh(0).await;
+        let result = manager.run_periodic_refresh(0).await;
         assert!(result.is_ok());
-
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_active_pods_tracking() -> Result<(), anyhow::Error> {
-        let client = Client::try_default().await?;
-        let resources = vec![ResourceInfo {
-            resource_type: ResourceType::Deployment("test-deploy".to_string()),
-            namespace: "test-namespace".to_string(),
-        }];
-
-        let pod_manager = PodManager::new(
-            resources,
-            client,
+    async fn test_refresh_respects_shutdown() -> Result<(), anyhow::Error> {
+        let mock = Arc::new(MockK8s::new(HashMap::new()));
+        let shutdown = CancellationToken::new();
+        let manager = PodManager::new(
+            vec![],
+            "test-ns".to_string(),
+            mock,
             true,
             "".to_string(),
+            shutdown.clone(),
         );
 
-        // Initially no active pods
-        let active_pods = pod_manager.active_pods.read().await;
-        assert!(active_pods.is_empty());
-        drop(active_pods);
-
-        // Add a pod manually
-        let mut active_pods = pod_manager.active_pods.write().await;
-        active_pods.insert("test-pod-1".to_string());
-        active_pods.insert("test-pod-2".to_string());
-        drop(active_pods);
-
-        // Check pods are tracked
-        let active_pods = pod_manager.active_pods.read().await;
-        assert!(active_pods.contains("test-pod-1"));
-        assert!(active_pods.contains("test-pod-2"));
-        assert_eq!(active_pods.len(), 2);
-
+        let handle = task::spawn(async move { manager.run_periodic_refresh(1).await });
+        shutdown.cancel();
+        let result = timeout(Duration::from_millis(100), handle).await;
+        assert!(result.is_ok());
         Ok(())
     }
 
@@ -504,7 +457,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_start_pod_logs_spawns_task() -> Result<(), anyhow::Error> {
-        let client = Client::try_default().await?;
+        let mock = Arc::new(MockK8s::new(HashMap::new()));
         let resources = vec![ResourceInfo {
             resource_type: ResourceType::Deployment("test-deploy".to_string()),
             namespace: "test-namespace".to_string(),
@@ -512,15 +465,20 @@ mod tests {
 
         let pod_manager = PodManager::new(
             resources,
-            client,
+            "test-namespace".to_string(),
+            mock.clone(),
             true,
             "".to_string(),
+            CancellationToken::new(),
         );
 
         let result = pod_manager.start_pod_logs("test-pod".to_string()).await;
         assert!(result.is_ok());
 
         tokio::time::sleep(Duration::from_millis(10)).await;
+
+        let streamed = mock.streamed.lock().unwrap();
+        assert_eq!(streamed.len(), 1);
 
         Ok(())
     }
