@@ -16,7 +16,7 @@ kube = { version = "=1.1.0", features = ["runtime", "derive"] }
 k8s-openapi = { version = "=0.25.0", features = ["latest"] }
 tokio = { version = "=1.49.0", features = ["full"] }
 tokio-util = { version = "=0.7", features = ["rt"] }
-anyhow = "=1.0.101"
+anyhow = "=1.0.102"
 futures-util = "=0.3"
 colored = "=3.1.1"
 clap = { version = "=4.5.59", features = ["derive"] }
